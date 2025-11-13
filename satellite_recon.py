@@ -396,56 +396,59 @@ def get_snapshot(lat, lon, meters, map_type, img_w):
     return snap
 
 # ---------- Interactive preview ----------
-class ZoomPreview(ui.ScrollView):
+class ZoomPreview(ui.View):
+    """Wrapper view that embeds a ScrollView for pinch-zoom preview."""
+
     def __init__(self):
         super().__init__()
         self.flex = 'WH'
         self.bg_color = (0.95, 0.95, 0.95)
         self.corner_radius = 12
-        self.shows_horizontal_scroll_indicator = False
-        self.shows_vertical_scroll_indicator = False
-        self.maximum_zoom_scale = 4.0
-        self.minimum_zoom_scale = 1.0
-        self.zoom_scale = 1.0
-        self.bounces = True
         self._image_size = (0, 0)
 
-        self._image_view = ui.ImageView(frame=self.bounds)
+        self._scroll = ui.ScrollView(frame=self.bounds)
+        self._scroll.flex = 'WH'
+        self._scroll.shows_horizontal_scroll_indicator = False
+        self._scroll.shows_vertical_scroll_indicator = False
+        self._scroll.maximum_zoom_scale = 4.0
+        self._scroll.minimum_zoom_scale = 1.0
+        self._scroll.zoom_scale = 1.0
+        self._scroll.bounces = True
+        self.add_subview(self._scroll)
+
+        self._image_view = ui.ImageView(frame=self._scroll.bounds)
         self._image_view.flex = 'WH'
         self._image_view.content_mode = ui.CONTENT_SCALE_ASPECT_FIT
         self._image_view.touch_enabled = False
-        self.add_subview(self._image_view)
+        self._scroll.add_subview(self._image_view)
 
     @property
     def image(self):
         return self._image_view.image
 
     def layout(self):
-        self._image_view.frame = (0, 0, self.width, self.height)
+        self._scroll.frame = (0, 0, self.width, self.height)
+        self._image_view.frame = (0, 0, self._scroll.width, self._scroll.height)
         self._update_content_size()
 
     def _update_content_size(self):
         w = max(self.width, self._image_size[0])
         h = max(self.height, self._image_size[1])
-        self.content_size = (w, h)
+        self._scroll.content_size = (w, h)
 
     def reset_zoom(self):
-        self.zoom_scale = 1.0
-        self.content_offset = (0, 0)
+        self._scroll.zoom_scale = 1.0
+        self._scroll.content_offset = (0, 0)
 
     def set_image(self, img):
         self._image_view.image = img
         if img:
             self._image_size = img.size
-            self.maximum_zoom_scale = max(2.0, min(6.0, img.size[0] / max(1.0, self.width)))
+            self._scroll.maximum_zoom_scale = max(2.0, min(6.0, img.size[0] / max(1.0, self.width)))
         else:
             self._image_size = (0, 0)
         self._update_content_size()
         self.reset_zoom()
-
-    def touch_ended(self, touch):
-        if touch.tap_count == 2:
-            self.reset_zoom()
 
 # ---------- App ----------
 class MapStudio(ui.View):
