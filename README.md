@@ -28,11 +28,11 @@ The app is tuned for **iPhone 14 Pro Max in portrait**, but the layout is simple
   - Smooth 0–360° rotation slider.
   - Snapshot is rotated into a square canvas so content doesn’t get clipped.
 - **Visual overlays**
-  - Optional **grid** (4×4 by default) with light lines over the map.
+  - Optional **grid** (2×2 to 5×5, default 4×4) with light lines over the map.
   - **Scale bar** in meters/km in the lower-left, with auto-sized length and label.
   - **North arrow** in the upper-right, rotated to reflect the current rotation, with an “N” marker.
-  - **Crosshair** at the exact center of the snapshot (lines + small dot).
-  - **Caption box** in the bottom-right:
+  - Toggleable **crosshair** at the exact center of the snapshot (lines + small dot).
+  - Toggleable **caption box** in the bottom-right:
     - `MapType • Coverage • Lat • Lon • Rot°`
     - Example: `Satellite • 800 m × 800 m • Lat 30.33218, Lon -81.65565 • Rot 45°`
 - **Compact address chip (top-left)**
