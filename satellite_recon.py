@@ -405,6 +405,7 @@ class ZoomPreview(ui.View):
         self.bg_color = (0.95, 0.95, 0.95)
         self.corner_radius = 12
         self._image_size = (0, 0)
+        self._fit_scale = 1.0
 
         self._scroll = ui.ScrollView(frame=self.bounds)
         self._scroll.flex = 'WH'
@@ -434,18 +435,35 @@ class ZoomPreview(ui.View):
         self._update_zoom_scales(adjust_zoom=False)
 
     def _update_image_frame(self):
-        if self._image_size[0] and self._image_size[1]:
-            self._image_view.frame = (0, 0, self._image_size[0], self._image_size[1])
+        if self._image_size[0] and self._image_size[1] and self._scroll.width and self._scroll.height:
+            scale_w = self._scroll.width / float(self._image_size[0])
+            scale_h = self._scroll.height / float(self._image_size[1])
+            self._fit_scale = min(1.0, scale_w, scale_h)
+            w = self._image_size[0] * self._fit_scale
+            h = self._image_size[1] * self._fit_scale
+            self._image_view.frame = (0, 0, w, h)
         else:
+            self._fit_scale = 1.0
             self._image_view.frame = (0, 0, self._scroll.width, self._scroll.height)
+        self._center_image_if_needed()
 
     def _update_content_size(self):
         w = max(self._scroll.width, self._image_view.width)
         h = max(self._scroll.height, self._image_view.height)
         self._scroll.content_size = (w, h)
 
+    def _center_image_if_needed(self):
+        if not self._scroll.width or not self._scroll.height:
+            self._image_view.x = 0
+            self._image_view.y = 0
+            return
+        inset_x = max(0, (self._scroll.width - self._image_view.width) / 2.0)
+        inset_y = max(0, (self._scroll.height - self._image_view.height) / 2.0)
+        self._image_view.x = inset_x
+        self._image_view.y = inset_y
+
     def reset_zoom(self):
-        self._scroll.zoom_scale = self._scroll.minimum_zoom_scale
+        self._scroll.zoom_scale = 1.0
         self._scroll.content_offset = (0, 0)
 
     def set_image(self, img):
@@ -457,6 +475,7 @@ class ZoomPreview(ui.View):
         self._update_image_frame()
         self._update_content_size()
         self._update_zoom_scales(adjust_zoom=True)
+        self._center_image_if_needed()
         self._scroll.content_offset = (0, 0)
 
     # --- ScrollView delegate hooks ---
@@ -465,6 +484,7 @@ class ZoomPreview(ui.View):
 
     def scrollview_did_zoom(self, scrollview):
         self._update_content_size()
+        self._center_image_if_needed()
 
     def _update_zoom_scales(self, adjust_zoom):
         if not self._image_size[0] or not self._image_size[1] or not self.width or not self.height:
@@ -474,17 +494,13 @@ class ZoomPreview(ui.View):
                 self._scroll.zoom_scale = 1.0
             return
 
-        scale_w = self._scroll.width / float(self._image_size[0]) if self._image_size[0] else 1.0
-        scale_h = self._scroll.height / float(self._image_size[1]) if self._image_size[1] else 1.0
-        min_scale = min(1.0, scale_w, scale_h)
-        min_scale = max(min_scale, 0.1)
-        max_scale = max(2.0, min(6.0, 1.0 / min_scale if min_scale > 0 else 4.0))
-        self._scroll.minimum_zoom_scale = min_scale
+        max_scale = max(2.0, min(6.0, 1.0 / self._fit_scale if self._fit_scale > 0 else 4.0))
+        self._scroll.minimum_zoom_scale = 1.0
         self._scroll.maximum_zoom_scale = max_scale
         if adjust_zoom:
-            self._scroll.zoom_scale = min_scale
+            self._scroll.zoom_scale = 1.0
         else:
-            self._scroll.zoom_scale = max(self._scroll.zoom_scale, min_scale)
+            self._scroll.zoom_scale = max(1.0, self._scroll.zoom_scale)
 
 # ---------- App ----------
 class MapStudio(ui.View):
