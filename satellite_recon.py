@@ -452,7 +452,9 @@ class ZoomPreview(ui.View):
         if self._image_size[0] and self._image_size[1] and self._scroll.width and self._scroll.height:
             scale_w = self._scroll.width / float(self._image_size[0])
             scale_h = self._scroll.height / float(self._image_size[1])
-            self._fit_scale = min(1.0, scale_w, scale_h)
+            # Allow upscaling when the rendered snapshot is smaller than the preview area
+            # so the "Live Preview" box is always filled.
+            self._fit_scale = min(scale_w, scale_h)
             w = self._image_size[0] * self._fit_scale
             h = self._image_size[1] * self._fit_scale
             self._image_view.frame = (0, 0, w, h)
@@ -508,14 +510,17 @@ class ZoomPreview(ui.View):
                 self._scroll.zoom_scale = 1.0
             return
 
-        native_scale = 1.0 / self._fit_scale if self._fit_scale > 0 else 4.0
-        max_scale = max(4.0, min(12.0, native_scale))
-        self._scroll.minimum_zoom_scale = 1.0
-        self._scroll.maximum_zoom_scale = max_scale
+        native_scale = 1.0 / self._fit_scale if self._fit_scale > 0 else 1.0
+        # When the snapshot had to be upscaled to fill the preview box, allow
+        # zooming out below 1.0 so the user can reach the native resolution.
+        min_zoom = native_scale if native_scale < 1.0 else 1.0
+        max_zoom = max(4.0, min(12.0, native_scale if native_scale >= 1.0 else 4.0))
+        self._scroll.minimum_zoom_scale = min_zoom
+        self._scroll.maximum_zoom_scale = max_zoom
         if adjust_zoom:
             self._scroll.zoom_scale = 1.0
         else:
-            self._scroll.zoom_scale = max(1.0, self._scroll.zoom_scale)
+            self._scroll.zoom_scale = max(self._scroll.minimum_zoom_scale, self._scroll.zoom_scale)
 
 # ---------- App ----------
 class MapStudio(ui.View):
