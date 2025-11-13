@@ -365,6 +365,10 @@ class MapStudio(ui.View):
         self.latlon = None
         self.meters = DEFAULT_METERS
         self.rotation = 0.0
+        self.show_grid = True
+        self.grid_divisions = 4
+        self.show_crosshair = True
+        self.show_caption = True
         self.last_tempfile = None
         self.current_map_type = MAP_TYPES[1]
         self._build()
@@ -391,6 +395,22 @@ class MapStudio(ui.View):
         self.rot_label = ui.Label(text=f'Rotation: {self.rotation:.0f}°', alignment=1)
         self.rot_label.font = ('<System>',13); self.rot_label.text_color = '#666'
 
+        # Overlay controls
+        self.grid_switch = ui.Switch(value=True, action=self.on_toggle_grid)
+        self.grid_lbl = ui.Label(text='Grid Overlay', alignment=0)
+        self.grid_lbl.font = ('<System>',13); self.grid_lbl.text_color = '#333'
+
+        self.grid_seg = ui.SegmentedControl(segments=['2×2','3×3','4×4','5×5'], action=self.on_grid_divisions)
+        self.grid_seg.selected_index = 2  # 4×4
+
+        self.cross_switch = ui.Switch(value=True, action=self.on_toggle_crosshair)
+        self.cross_lbl = ui.Label(text='Crosshair', alignment=0)
+        self.cross_lbl.font = ('<System>',13); self.cross_lbl.text_color = '#333'
+
+        self.caption_switch = ui.Switch(value=True, action=self.on_toggle_caption)
+        self.caption_lbl = ui.Label(text='Caption Box', alignment=0)
+        self.caption_lbl.font = ('<System>',13); self.caption_lbl.text_color = '#333'
+
         self.render_btn = ui.Button(title='Render Snapshot', action=self.on_render)
         self.render_btn.font = ('<System-Bold>',17)
         self.render_btn.background_color = '#0a84ff'; self.render_btn.tint_color = 'white'
@@ -410,7 +430,11 @@ class MapStudio(ui.View):
         self.imgv.bg_color = (0.97,0.97,0.97)
 
         for v in (self.loc_btn,self.coord_lbl,self.type_seg,self.m_slider,self.m_label,
-                  self.rot_slider,self.rot_label,self.render_btn,self.save_btn,self.share_btn,self.imgv):
+                  self.rot_slider,self.rot_label,
+                  self.grid_lbl,self.grid_switch,self.grid_seg,
+                  self.cross_lbl,self.cross_switch,
+                  self.caption_lbl,self.caption_switch,
+                  self.render_btn,self.save_btn,self.share_btn,self.imgv):
             self.add_subview(v); v.flex = 'W'
 
     def _layout(self):
@@ -422,6 +446,16 @@ class MapStudio(ui.View):
         self.m_label.frame = (pad,y,self.width-2*pad,20); y+=28
         self.rot_slider.frame = (pad,y,self.width-2*pad,24); y+=28
         self.rot_label.frame = (pad,y,self.width-2*pad,20); y+=28
+        # Grid toggle row
+        self.grid_lbl.frame = (pad,y,self.width*0.6,26)
+        self.grid_switch.frame = (self.width-pad-51,y,51,26); y+=30
+        self.grid_seg.frame = (pad,y,self.width-2*pad,30); y+=36
+        # Crosshair toggle
+        self.cross_lbl.frame = (pad,y,self.width*0.6,26)
+        self.cross_switch.frame = (self.width-pad-51,y,51,26); y+=30
+        # Caption toggle
+        self.caption_lbl.frame = (pad,y,self.width*0.6,26)
+        self.caption_switch.frame = (self.width-pad-51,y,51,26); y+=34
         self.render_btn.frame = (pad,y,self.width-2*pad,40); y+=48
         self.save_btn.frame = (pad,y,(self.width-2*pad-8)//2,36)
         self.share_btn.frame = (self.save_btn.x+self.save_btn.width+8,y,self.save_btn.width,36); y+=44
@@ -450,6 +484,18 @@ class MapStudio(ui.View):
         self.rotation = rot_slider_to_degrees(s.value)
         self.rot_label.text = f'Rotation: {self.rotation:.0f}°'
 
+    def on_toggle_grid(self, s):
+        self.show_grid = bool(s.value)
+
+    def on_grid_divisions(self, s):
+        self.grid_divisions = 2 + s.selected_index
+
+    def on_toggle_crosshair(self, s):
+        self.show_crosshair = bool(s.value)
+
+    def on_toggle_caption(self, s):
+        self.show_caption = bool(s.value)
+
     def _encode_temp(self, img):
         try:
             if self.last_tempfile and os.path.exists(self.last_tempfile):
@@ -473,7 +519,12 @@ class MapStudio(ui.View):
         lat, lon = self.latlon
         rotated = rotate_image_fill_square(snap_img, self.rotation)
         return draw_overlays(rotated, int(self.meters), self.current_map_type, lat, lon,
-                             rotation_deg=self.rotation, full_addr=addr_text)
+                             rotation_deg=self.rotation,
+                             show_grid=self.show_grid,
+                             show_crosshair=self.show_crosshair,
+                             grid_divisions=self.grid_divisions,
+                             show_caption=self.show_caption,
+                             full_addr=addr_text)
 
     @ui.in_background
     def on_render(self, s):
