@@ -431,6 +431,7 @@ class ZoomPreview(ui.View):
         self._scroll.frame = (0, 0, self.width, self.height)
         self._update_image_frame()
         self._update_content_size()
+        self._update_zoom_scales(adjust_zoom=False)
 
     def _update_image_frame(self):
         if self._image_size[0] and self._image_size[1]:
@@ -444,19 +445,19 @@ class ZoomPreview(ui.View):
         self._scroll.content_size = (w, h)
 
     def reset_zoom(self):
-        self._scroll.zoom_scale = 1.0
+        self._scroll.zoom_scale = self._scroll.minimum_zoom_scale
         self._scroll.content_offset = (0, 0)
 
     def set_image(self, img):
         self._image_view.image = img
         if img:
             self._image_size = img.size
-            self._scroll.maximum_zoom_scale = max(2.0, min(6.0, img.size[0] / max(1.0, self.width)))
         else:
             self._image_size = (0, 0)
         self._update_image_frame()
         self._update_content_size()
-        self.reset_zoom()
+        self._update_zoom_scales(adjust_zoom=True)
+        self._scroll.content_offset = (0, 0)
 
     # --- ScrollView delegate hooks ---
     def view_for_zooming_in_scrollview(self, scrollview):
@@ -464,6 +465,26 @@ class ZoomPreview(ui.View):
 
     def scrollview_did_zoom(self, scrollview):
         self._update_content_size()
+
+    def _update_zoom_scales(self, adjust_zoom):
+        if not self._image_size[0] or not self._image_size[1] or not self.width or not self.height:
+            self._scroll.minimum_zoom_scale = 1.0
+            self._scroll.maximum_zoom_scale = 4.0
+            if adjust_zoom:
+                self._scroll.zoom_scale = 1.0
+            return
+
+        scale_w = self._scroll.width / float(self._image_size[0]) if self._image_size[0] else 1.0
+        scale_h = self._scroll.height / float(self._image_size[1]) if self._image_size[1] else 1.0
+        min_scale = min(1.0, scale_w, scale_h)
+        min_scale = max(min_scale, 0.1)
+        max_scale = max(2.0, min(6.0, 1.0 / min_scale if min_scale > 0 else 4.0))
+        self._scroll.minimum_zoom_scale = min_scale
+        self._scroll.maximum_zoom_scale = max_scale
+        if adjust_zoom:
+            self._scroll.zoom_scale = min_scale
+        else:
+            self._scroll.zoom_scale = max(self._scroll.zoom_scale, min_scale)
 
 # ---------- App ----------
 class MapStudio(ui.View):
