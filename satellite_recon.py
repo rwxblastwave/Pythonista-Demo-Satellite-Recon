@@ -481,6 +481,17 @@ class MapStudio(ui.View):
         self.current_map_type = MAP_TYPES[1]
         self.quality_index = len(QUALITY_PRESETS) - 1
         self.status_text = 'Ready to capture your first snapshot.'
+        self.scroll = ui.ScrollView(frame=self.bounds)
+        self.scroll.flex = 'WH'
+        self.scroll.shows_vertical_scroll_indicator = True
+        self.scroll.bounces = True
+        self.scroll.always_bounce_vertical = True
+        self.scroll.bg_color = BG_COLOR
+        self.add_subview(self.scroll)
+        self.content = ui.View(frame=self.bounds)
+        self.content.flex = 'WH'
+        self.content.bg_color = BG_COLOR
+        self.scroll.add_subview(self.content)
         self._build()
         self._layout()
 
@@ -600,13 +611,17 @@ class MapStudio(ui.View):
         self.preview_card.add_subview(self.preview_hint)
 
         for v in (self.hero_lbl,self.subtitle_lbl,self.controls_card,self.preview_card,self.status_lbl,self.activity):
-            self.add_subview(v)
+            self.content.add_subview(v)
 
         self._set_preview_image(None)
 
     def _layout(self):
+        self.scroll.frame = (0, 0, self.width, self.height)
+        content_width = self.scroll.width
+        self.content.frame = (0, 0, content_width, self.content.height or self.scroll.height)
+
         pad = 20
-        width = self.width - 2*pad
+        width = content_width - 2*pad
         y = 32
 
         self.hero_lbl.frame = (pad, y, width, 32)
@@ -684,6 +699,10 @@ class MapStudio(ui.View):
 
         self.status_lbl.frame = (pad, y, width - 40, 40)
         self.activity.frame = (pad + width - 30, y + 6, 24, 24)
+
+        content_height = self.status_lbl.y + self.status_lbl.height + 32
+        self.content.height = content_height
+        self.scroll.content_size = (content_width, content_height)
 
     def layout(self): self._layout()
 
