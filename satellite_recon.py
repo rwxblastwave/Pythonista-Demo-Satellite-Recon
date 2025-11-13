@@ -5,16 +5,6 @@
 
 import ui, location, photos, dialogs, tempfile, os, time, math, console, requests, threading
 
-# ===== Theme =====
-BG_COLOR        = '#f2f2f7'
-CARD_BG         = '#ffffff'
-CARD_SHADOW     = (0, 0, 0, 0.08)
-ACCENT_BLUE     = '#0a84ff'
-ACCENT_GREEN    = '#34c759'
-TEXT_PRIMARY    = '#111111'
-TEXT_SECONDARY  = '#6c6c70'
-ACTIVITY_STYLE  = getattr(ui, 'ACTIVITY_INDICATOR_STYLE_GRAY', getattr(ui, 'ACTIVITY_INDICATOR_STYLE_WHITE', 0))
-
 # ===== Appearance =====
 GRID_ALPHA       = 0.10
 CHIP_ALPHA       = 0.06
@@ -24,12 +14,6 @@ RED              = (1, 0.2, 0.2, 1)
 CAPTION_OFFSET_Y = 26
 
 MAP_TYPES = ['standard', 'satellite', 'hybrid']
-
-QUALITY_PRESETS = [
-    ('Standard', 1024),
-    ('High', 1536),
-    ('Ultra', 2048),
-]
 
 SCREEN_W, SCREEN_H = 430, 932
 MIN_METERS, MAX_METERS = 150.0, 6000.0
@@ -43,28 +27,6 @@ FONT_CAPTION = ('<System>', 12)
 FONT_SCALE = ('<System>', 13)
 _, _chip_lh = ui.measure_string('Ag', font=FONT_CHIP)
 CHIP_LINE_H = max(18, _chip_lh)
-
-def _apply_card_style(view):
-    view.bg_color = CARD_BG
-    view.corner_radius = 18
-    view.border_width = 0
-    view.flex = 'W'
-    view.shadow_color = CARD_SHADOW
-    view.shadow_offset = (0, 8)
-    view.shadow_radius = 16
-
-def _apply_primary_button(btn):
-    btn.font = ('<System-Bold>', 17)
-    btn.background_color = ACCENT_BLUE
-    btn.tint_color = 'white'
-    btn.corner_radius = 10
-
-def _apply_outline_button(btn, color):
-    btn.font = ('<System-Semibold>', 16)
-    btn.corner_radius = 10
-    btn.border_width = 1
-    btn.border_color = color
-    btn.tint_color = color
 
 # ===== Caches =====
 _last_snap_key = None
@@ -124,37 +86,23 @@ def _measure(text, font):
     return w, h
 
 # ---------- Imaging ----------
-def _ensure_square_canvas(img):
-    """Return a square version of img by letterboxing the longest edge."""
-    w, h = img.size
-    if w == h:
-        return img
-    side = int(max(w, h))
-    dx = (side - w) / 2.0
-    dy = (side - h) / 2.0
-    with ui.ImageContext(side, side) as ctx:
-        img.draw(dx, dy, w, h)
-        return ctx.get_image()
-
-
 def rotate_image_fill_square(img, degrees):
     """Rotate around center on a square canvas; skip or reuse when possible."""
     global _last_rot_src, _last_rot_deg, _last_rot_img
-    square = _ensure_square_canvas(img)
     if abs(degrees) < 0.01:
-        return square
-    if (_last_rot_src is square and _last_rot_deg == degrees and
-            _last_rot_img is not None):
+        return img
+    if _last_rot_src is img and _last_rot_deg == degrees and _last_rot_img is not None:
         return _last_rot_img
-    side, _ = square.size
+    w, h = img.size
+    side = int(min(w, h))
     theta = math.radians(degrees)
     scale = abs(math.cos(theta)) + abs(math.sin(theta))
     with ui.ImageContext(side, side) as ctx:
         ui.concat_ctm(ui.Transform.translation(side/2.0, side/2.0))
         ui.concat_ctm(ui.Transform.rotation(theta))
-        square.draw(-side*scale/2.0, -side*scale/2.0, side*scale, side*scale)
+        img.draw(-side*scale/2.0, -side*scale/2.0, side*scale, side*scale)
         out = ctx.get_image()
-    _last_rot_src, _last_rot_deg, _last_rot_img = square, degrees, out
+    _last_rot_src, _last_rot_deg, _last_rot_img = img, degrees, out
     return out
 
 # ---------- Caption ----------
@@ -409,177 +357,25 @@ def get_snapshot(lat, lon, meters, map_type, img_w):
     _last_rot_src = None; _last_rot_deg = None; _last_rot_img = None
     return snap
 
-# ---------- Interactive preview ----------
-class ZoomPreview(ui.View):
-    """Wrapper view that embeds a ScrollView for pinch-zoom preview."""
-
-    def __init__(self):
-        super().__init__()
-        self.flex = 'WH'
-        self.bg_color = (0.95, 0.95, 0.95)
-        self.corner_radius = 12
-        self._image_size = (0, 0)
-        self._fit_scale = 1.0
-
-        self._scroll = ui.ScrollView(frame=self.bounds)
-        self._scroll.flex = 'WH'
-        self._scroll.shows_horizontal_scroll_indicator = False
-        self._scroll.shows_vertical_scroll_indicator = False
-        self._scroll.maximum_zoom_scale = 4.0
-        self._scroll.minimum_zoom_scale = 1.0
-        self._scroll.zoom_scale = 1.0
-        self._scroll.bounces = True
-        self._scroll.delegate = self
-        self.add_subview(self._scroll)
-
-        self._image_view = ui.ImageView(frame=self._scroll.bounds)
-        self._image_view.flex = ''
-        self._image_view.content_mode = ui.CONTENT_SCALE_ASPECT_FIT
-        self._image_view.touch_enabled = False
-        self._scroll.add_subview(self._image_view)
-
-    @property
-    def image(self):
-        return self._image_view.image
-
-    def layout(self):
-        self._scroll.frame = (0, 0, self.width, self.height)
-        self._update_image_frame()
-        self._update_content_size()
-        self._update_zoom_scales(adjust_zoom=False)
-
-    def _update_image_frame(self):
-        if self._image_size[0] and self._image_size[1] and self._scroll.width and self._scroll.height:
-            scale_w = self._scroll.width / float(self._image_size[0])
-            scale_h = self._scroll.height / float(self._image_size[1])
-            # Allow upscaling when the rendered snapshot is smaller than the preview area
-            # so the "Live Preview" box is always filled.
-            self._fit_scale = min(scale_w, scale_h)
-            w = self._image_size[0] * self._fit_scale
-            h = self._image_size[1] * self._fit_scale
-            self._image_view.frame = (0, 0, w, h)
-        else:
-            self._fit_scale = 1.0
-            self._image_view.frame = (0, 0, self._scroll.width, self._scroll.height)
-        self._center_image_if_needed()
-
-    def _update_content_size(self):
-        w = max(self._scroll.width, self._image_view.width)
-        h = max(self._scroll.height, self._image_view.height)
-        self._scroll.content_size = (w, h)
-
-    def _center_image_if_needed(self):
-        if not self._scroll.width or not self._scroll.height:
-            self._image_view.x = 0
-            self._image_view.y = 0
-            return
-        inset_x = max(0, (self._scroll.width - self._image_view.width) / 2.0)
-        inset_y = max(0, (self._scroll.height - self._image_view.height) / 2.0)
-        self._image_view.x = inset_x
-        self._image_view.y = inset_y
-
-    def reset_zoom(self):
-        self._scroll.zoom_scale = 1.0
-        self._scroll.content_offset = (0, 0)
-
-    def set_image(self, img):
-        self._image_view.image = img
-        if img:
-            self._image_size = img.size
-        else:
-            self._image_size = (0, 0)
-        self._update_image_frame()
-        self._update_content_size()
-        self._update_zoom_scales(adjust_zoom=True)
-        self._center_image_if_needed()
-        self._scroll.content_offset = (0, 0)
-
-    # --- ScrollView delegate hooks ---
-    def view_for_zooming_in_scrollview(self, scrollview):
-        return self._image_view
-
-    def scrollview_did_zoom(self, scrollview):
-        self._update_content_size()
-        self._center_image_if_needed()
-
-    def _update_zoom_scales(self, adjust_zoom):
-        if not self._image_size[0] or not self._image_size[1] or not self.width or not self.height:
-            self._scroll.minimum_zoom_scale = 1.0
-            self._scroll.maximum_zoom_scale = 4.0
-            if adjust_zoom:
-                self._scroll.zoom_scale = 1.0
-            return
-
-        native_scale = 1.0 / self._fit_scale if self._fit_scale > 0 else 1.0
-        # When the snapshot had to be upscaled to fill the preview box, allow
-        # zooming out below 1.0 so the user can reach the native resolution.
-        min_zoom = native_scale if native_scale < 1.0 else 1.0
-        max_zoom = max(4.0, min(12.0, native_scale if native_scale >= 1.0 else 4.0))
-        self._scroll.minimum_zoom_scale = min_zoom
-        self._scroll.maximum_zoom_scale = max_zoom
-        if adjust_zoom:
-            self._scroll.zoom_scale = 1.0
-        else:
-            self._scroll.zoom_scale = max(self._scroll.minimum_zoom_scale, self._scroll.zoom_scale)
-
 # ---------- App ----------
 class MapStudio(ui.View):
     def __init__(self):
-        super().__init__(frame=(0,0,SCREEN_W,SCREEN_H), bg_color=BG_COLOR)
-        self.name = 'Map Snapshot Studio'
+        super().__init__(frame=(0,0,SCREEN_W,SCREEN_H), bg_color='white')
+        self.name = 'Map Snapshot Studio — Compact'
         self.latlon = None
         self.meters = DEFAULT_METERS
         self.rotation = 0.0
-        self.show_grid = True
-        self.grid_divisions = 4
-        self.show_crosshair = True
-        self.show_caption = True
         self.last_tempfile = None
         self.current_map_type = MAP_TYPES[1]
-        self.quality_index = len(QUALITY_PRESETS) - 1
-        self.status_text = 'Ready to capture your first snapshot.'
-        self.scroll = ui.ScrollView(frame=self.bounds)
-        self.scroll.flex = 'WH'
-        self.scroll.shows_vertical_scroll_indicator = True
-        self.scroll.bounces = True
-        self.scroll.always_bounce_vertical = True
-        self.scroll.bg_color = BG_COLOR
-        self.add_subview(self.scroll)
-        self.content = ui.View(frame=self.bounds)
-        self.content.flex = 'WH'
-        self.content.bg_color = BG_COLOR
-        self.scroll.add_subview(self.content)
         self._build()
         self._layout()
 
     def _build(self):
-        self.hero_lbl = ui.Label(text='Satellite Recon Studio', alignment=0)
-        self.hero_lbl.font = ('<System-Bold>', 26)
-        self.hero_lbl.text_color = TEXT_PRIMARY
-
-        self.subtitle_lbl = ui.Label(text='Capture beautiful, annotated Apple Maps imagery in seconds.', alignment=0)
-        self.subtitle_lbl.font = ('<System>', 15)
-        self.subtitle_lbl.text_color = TEXT_SECONDARY
-        self.subtitle_lbl.number_of_lines = 2
-
-        self.controls_card = ui.View()
-        _apply_card_style(self.controls_card)
-
-        self.preview_card = ui.View()
-        _apply_card_style(self.preview_card)
-
-        self.preview_title = ui.Label(text='Live Preview', alignment=0)
-        self.preview_title.font = ('<System-Semibold>', 16)
-        self.preview_title.text_color = TEXT_PRIMARY
-
         self.loc_btn = ui.Button(title='Use My Location', action=self.on_pick)
-        _apply_outline_button(self.loc_btn, ACCENT_BLUE)
-
-        self.reset_btn = ui.Button(title='Reset Controls', action=self.on_reset)
-        _apply_outline_button(self.reset_btn, TEXT_SECONDARY)
+        self.loc_btn.font = ('<System-Bold>',17); self.loc_btn.tint_color = '#0a84ff'
 
         self.coord_lbl = ui.Label(text='No location yet', alignment=0, number_of_lines=2)
-        self.coord_lbl.font = ('<System>',15); self.coord_lbl.text_color = TEXT_PRIMARY
+        self.coord_lbl.font = ('<System>',15); self.coord_lbl.text_color = '#333'
 
         self.type_seg = ui.SegmentedControl(segments=['Standard','Satellite','Hybrid'])
         self.type_seg.selected_index = 1
@@ -588,185 +384,49 @@ class MapStudio(ui.View):
         self.m_slider = ui.Slider(action=self.on_cov)
         self.m_slider.value = meters_to_cov_slider(self.meters)
         self.m_label = ui.Label(text=f'Coverage: {meters_label(self.meters)} × {meters_label(self.meters)}', alignment=1)
-        self.m_label.font = ('<System>',13); self.m_label.text_color = TEXT_SECONDARY
+        self.m_label.font = ('<System>',13); self.m_label.text_color = '#666'
 
         self.rot_slider = ui.Slider(action=self.on_rot)
         self.rot_slider.value = degrees_to_rot_slider(self.rotation)
         self.rot_label = ui.Label(text=f'Rotation: {self.rotation:.0f}°', alignment=1)
-        self.rot_label.font = ('<System>',13); self.rot_label.text_color = TEXT_SECONDARY
-
-        self.quality_lbl = ui.Label(alignment=0)
-        self.quality_lbl.font = ('<System>',13); self.quality_lbl.text_color = TEXT_PRIMARY
-        self.quality_seg = ui.SegmentedControl(segments=[name for name,_ in QUALITY_PRESETS], action=self.on_quality)
-        self.quality_seg.selected_index = self.quality_index
-        self._update_quality_label()
-
-        self.grid_switch = ui.Switch(value=True, action=self.on_toggle_grid)
-        self.grid_lbl = ui.Label(text='Grid Overlay', alignment=0)
-        self.grid_lbl.font = ('<System>',13); self.grid_lbl.text_color = TEXT_PRIMARY
-
-        self.grid_seg = ui.SegmentedControl(segments=['2×2','3×3','4×4','5×5'], action=self.on_grid_divisions)
-        self.grid_seg.selected_index = 2
-
-        self.cross_switch = ui.Switch(value=True, action=self.on_toggle_crosshair)
-        self.cross_lbl = ui.Label(text='Crosshair', alignment=0)
-        self.cross_lbl.font = ('<System>',13); self.cross_lbl.text_color = TEXT_PRIMARY
-
-        self.caption_switch = ui.Switch(value=True, action=self.on_toggle_caption)
-        self.caption_lbl = ui.Label(text='Caption Box', alignment=0)
-        self.caption_lbl.font = ('<System>',13); self.caption_lbl.text_color = TEXT_PRIMARY
+        self.rot_label.font = ('<System>',13); self.rot_label.text_color = '#666'
 
         self.render_btn = ui.Button(title='Render Snapshot', action=self.on_render)
-        _apply_primary_button(self.render_btn)
+        self.render_btn.font = ('<System-Bold>',17)
+        self.render_btn.background_color = '#0a84ff'; self.render_btn.tint_color = 'white'
+        self.render_btn.corner_radius = 8
 
         self.save_btn = ui.Button(title='Save to Photos', action=self.on_save)
-        self.save_btn.enabled = False
-        _apply_outline_button(self.save_btn, ACCENT_BLUE)
+        self.save_btn.enabled = False; self.save_btn.corner_radius = 8
+        self.save_btn.border_width = 1; self.save_btn.border_color = '#0a84ff'
+        self.save_btn.tint_color = '#0a84ff'
 
         self.share_btn = ui.Button(title='Share...', action=self.on_share)
-        self.share_btn.enabled = False
-        _apply_outline_button(self.share_btn, ACCENT_GREEN)
+        self.share_btn.enabled = False; self.share_btn.corner_radius = 8
+        self.share_btn.border_width = 1; self.share_btn.border_color = '#34c759'
+        self.share_btn.tint_color = '#34c759'
 
-        self.preview = ZoomPreview()
+        self.imgv = ui.ImageView(content_mode=ui.CONTENT_SCALE_ASPECT_FIT)
+        self.imgv.bg_color = (0.97,0.97,0.97)
 
-        self.preview_hint = ui.Label(text='Render a snapshot to see it here. Pinch or drag once rendered.', alignment=0)
-        self.preview_hint.text_color = TEXT_SECONDARY
-        self.preview_hint.font = ('<System>', 14)
-        self.preview_hint.number_of_lines = 2
-
-        self.status_lbl = ui.Label(text=self.status_text, alignment=0)
-        self.status_lbl.text_color = TEXT_SECONDARY
-        self.status_lbl.font = ('<System>', 13)
-        self.status_lbl.number_of_lines = 2
-
-        self.activity = ui.ActivityIndicator(style=ACTIVITY_STYLE)
-        self.activity.hides_when_stopped = True
-
-        self.controls_card.add_subview(self.loc_btn)
-        self.controls_card.add_subview(self.reset_btn)
-        self.controls_card.add_subview(self.coord_lbl)
-        self.controls_card.add_subview(self.type_seg)
-        self.controls_card.add_subview(self.m_slider)
-        self.controls_card.add_subview(self.m_label)
-        self.controls_card.add_subview(self.rot_slider)
-        self.controls_card.add_subview(self.rot_label)
-        self.controls_card.add_subview(self.quality_lbl)
-        self.controls_card.add_subview(self.quality_seg)
-        self.controls_card.add_subview(self.grid_lbl)
-        self.controls_card.add_subview(self.grid_switch)
-        self.controls_card.add_subview(self.grid_seg)
-        self.controls_card.add_subview(self.cross_lbl)
-        self.controls_card.add_subview(self.cross_switch)
-        self.controls_card.add_subview(self.caption_lbl)
-        self.controls_card.add_subview(self.caption_switch)
-        self.controls_card.add_subview(self.render_btn)
-        self.controls_card.add_subview(self.save_btn)
-        self.controls_card.add_subview(self.share_btn)
-
-        self.preview_card.add_subview(self.preview_title)
-        self.preview_card.add_subview(self.preview)
-        self.preview_card.add_subview(self.preview_hint)
-
-        for v in (self.hero_lbl,self.subtitle_lbl,self.controls_card,self.preview_card,self.status_lbl,self.activity):
-            self.content.add_subview(v)
-
-        self._set_preview_image(None)
+        for v in (self.loc_btn,self.coord_lbl,self.type_seg,self.m_slider,self.m_label,
+                  self.rot_slider,self.rot_label,self.render_btn,self.save_btn,self.share_btn,self.imgv):
+            self.add_subview(v); v.flex = 'W'
 
     def _layout(self):
-        self.scroll.frame = (0, 0, self.width, self.height)
-        content_width = self.scroll.width
-        self.content.frame = (0, 0, content_width, self.content.height or self.scroll.height)
-
-        pad = 20
-        width = content_width - 2*pad
-        y = 32
-
-        self.hero_lbl.frame = (pad, y, width, 32)
-        y += 34
-        self.subtitle_lbl.frame = (pad, y, width, 40)
-        y += 46
-
-        self.controls_card.frame = (pad, y, width, 10)
-        inner = 18
-        card_w = width - 2*inner
-        cy = inner
-
-        half = (card_w - 8) / 2
-        self.loc_btn.frame = (inner, cy, half, 38)
-        self.reset_btn.frame = (inner + half + 8, cy, half, 38)
-        cy += 46
-
-        self.coord_lbl.frame = (inner, cy, card_w, 40)
-        cy += 46
-
-        self.type_seg.frame = (inner, cy, card_w, 32)
-        cy += 40
-
-        self.m_slider.frame = (inner, cy, card_w, 28)
-        cy += 28
-        self.m_label.frame = (inner, cy, card_w, 20)
-        cy += 28
-
-        self.rot_slider.frame = (inner, cy, card_w, 28)
-        cy += 28
-        self.rot_label.frame = (inner, cy, card_w, 20)
-        cy += 28
-
-        self.quality_lbl.frame = (inner, cy, card_w, 20)
-        cy += 26
-        self.quality_seg.frame = (inner, cy, card_w, 32)
-        cy += 40
-
-        self.grid_lbl.frame = (inner, cy, card_w*0.6, 26)
-        self.grid_switch.frame = (inner + card_w - 64, cy, 64, 26)
-        cy += 32
-        self.grid_seg.frame = (inner, cy, card_w, 30)
-        cy += 38
-
-        self.cross_lbl.frame = (inner, cy, card_w*0.6, 26)
-        self.cross_switch.frame = (inner + card_w - 64, cy, 64, 26)
-        cy += 32
-
-        self.caption_lbl.frame = (inner, cy, card_w*0.6, 26)
-        self.caption_switch.frame = (inner + card_w - 64, cy, 64, 26)
-        cy += 40
-
-        self.render_btn.frame = (inner, cy, card_w, 44)
-        cy += 52
-
-        half = (card_w - 12) / 2
-        self.save_btn.frame = (inner, cy, half, 40)
-        self.share_btn.frame = (inner + half + 12, cy, half, 40)
-        cy += 52
-
-        self.controls_card.height = cy + inner
-        y = self.controls_card.y + self.controls_card.height + 18
-
-        self.preview_card.frame = (pad, y, width, 10)
-        inner_p = 16
-        inner_width = width - 2*inner_p
-        self.preview_title.frame = (inner_p, inner_p, inner_width, 22)
-        img_y = inner_p + 30
-        preferred_size = inner_width
-        min_preview = 300
-        if preferred_size < min_preview:
-            preferred_size = min_preview
-        self.preview.frame = (inner_p, img_y, preferred_size, preferred_size)
-        self.preview_hint.frame = (
-            self.preview.x,
-            self.preview.y + self.preview.height / 2 - 10,
-            self.preview.width,
-            20,
-        )
-        self.preview_card.height = self.preview.y + self.preview.height + inner_p
-        y = self.preview_card.y + self.preview_card.height + 12
-
-        self.status_lbl.frame = (pad, y, width - 40, 40)
-        self.activity.frame = (pad + width - 30, y + 6, 24, 24)
-
-        content_height = self.status_lbl.y + self.status_lbl.height + 32
-        self.content.height = content_height
-        self.scroll.content_size = (content_width, content_height)
+        pad = 16; y = 24
+        self.loc_btn.frame = (pad,y,self.width-2*pad,36); y+=40
+        self.coord_lbl.frame = (pad,y,self.width-2*pad,38); y+=44
+        self.type_seg.frame = (pad,y,self.width-2*pad,32); y+=40
+        self.m_slider.frame = (pad,y,self.width-2*pad,24); y+=28
+        self.m_label.frame = (pad,y,self.width-2*pad,20); y+=28
+        self.rot_slider.frame = (pad,y,self.width-2*pad,24); y+=28
+        self.rot_label.frame = (pad,y,self.width-2*pad,20); y+=28
+        self.render_btn.frame = (pad,y,self.width-2*pad,40); y+=48
+        self.save_btn.frame = (pad,y,(self.width-2*pad-8)//2,36)
+        self.share_btn.frame = (self.save_btn.x+self.save_btn.width+8,y,self.save_btn.width,36); y+=44
+        size = self.width-2*pad
+        self.imgv.frame = (pad,y,size,min(size,self.height-y-pad))
 
     def layout(self): self._layout()
 
@@ -776,10 +436,8 @@ class MapStudio(ui.View):
         if loc:
             self.latlon = loc
             self.coord_lbl.text = f'Lat: {loc[0]:.6f}\nLon: {loc[1]:.6f}'
-            self.set_status('Location lock acquired. Ready to render!')
         else:
             self.coord_lbl.text = 'Location unavailable'
-            self.set_status('Unable to determine your current location.')
 
     def on_type(self, s):
         self.current_map_type = MAP_TYPES[self.type_seg.selected_index]
@@ -791,45 +449,6 @@ class MapStudio(ui.View):
     def on_rot(self, s):
         self.rotation = rot_slider_to_degrees(s.value)
         self.rot_label.text = f'Rotation: {self.rotation:.0f}°'
-
-    def on_quality(self, s):
-        self.quality_index = s.selected_index
-        self._update_quality_label()
-
-    def on_toggle_grid(self, s):
-        self.show_grid = bool(s.value)
-
-    def on_grid_divisions(self, s):
-        self.grid_divisions = 2 + s.selected_index
-
-    def on_toggle_crosshair(self, s):
-        self.show_crosshair = bool(s.value)
-
-    def on_toggle_caption(self, s):
-        self.show_caption = bool(s.value)
-
-    def on_reset(self, s):
-        self.meters = DEFAULT_METERS
-        self.m_slider.value = meters_to_cov_slider(self.meters)
-        self.m_label.text = f'Coverage: {meters_label(self.meters)} × {meters_label(self.meters)}'
-        self.rotation = 0.0
-        self.rot_slider.value = degrees_to_rot_slider(self.rotation)
-        self.rot_label.text = f'Rotation: {self.rotation:.0f}°'
-        self.grid_switch.value = True; self.show_grid = True
-        self.cross_switch.value = True; self.show_crosshair = True
-        self.caption_switch.value = True; self.show_caption = True
-        self.grid_seg.selected_index = 2; self.grid_divisions = 4
-        self.type_seg.selected_index = 1; self.current_map_type = MAP_TYPES[1]
-        self.quality_index = len(QUALITY_PRESETS) - 1
-        self.quality_seg.selected_index = self.quality_index
-        self._update_quality_label()
-        self.latlon = None
-        self.coord_lbl.text = 'No location yet'
-        self.save_btn.enabled = False
-        self.share_btn.enabled = False
-        self.last_tempfile = None
-        self.set_status('Controls reset. Tap “Use My Location” to start over.')
-        self._set_preview_image(None)
 
     def _encode_temp(self, img):
         try:
@@ -845,60 +464,34 @@ class MapStudio(ui.View):
             dialogs.alert('Temp File Error', str(e), 'OK', hide_cancel_button=True)
             return None
 
-    def _set_busy(self, busy=True, status=None):
-        for v in (self.loc_btn, self.type_seg, self.m_slider, self.rot_slider,
-                  self.quality_seg, self.render_btn, self.save_btn, self.share_btn):
+    def _set_busy(self, busy=True):
+        for v in (self.loc_btn, self.type_seg, self.m_slider, self.rot_slider, self.render_btn, self.save_btn, self.share_btn):
             v.enabled = not busy
         self.render_btn.title = 'Rendering...' if busy else 'Render Snapshot'
-        if busy:
-            self.activity.start()
-        else:
-            self.activity.stop()
-        if status:
-            self.set_status(status)
-
-    def set_status(self, text):
-        self.status_text = text
-        self.status_lbl.text = text
-
-    def _set_preview_image(self, img):
-        square_img = _ensure_square_canvas(img) if img else None
-        self.preview.set_image(square_img)
-        self.preview_hint.hidden = bool(img)
-
-    def _update_quality_label(self):
-        name, px = QUALITY_PRESETS[self.quality_index]
-        self.quality_lbl.text = f'Render Quality: {name} ({px}px square)'
 
     def _compose_image(self, snap_img, addr_text=None):
         lat, lon = self.latlon
         rotated = rotate_image_fill_square(snap_img, self.rotation)
         return draw_overlays(rotated, int(self.meters), self.current_map_type, lat, lon,
-                             rotation_deg=self.rotation,
-                             show_grid=self.show_grid,
-                             show_crosshair=self.show_crosshair,
-                             grid_divisions=self.grid_divisions,
-                             show_caption=self.show_caption,
-                             full_addr=addr_text)
+                             rotation_deg=self.rotation, full_addr=addr_text)
 
     @ui.in_background
     def on_render(self, s):
         if not self.latlon:
             dialogs.alert('Location Needed','Tap “Use My Location” first.','OK',hide_cancel_button=True)
             return
-        self._set_busy(True, status='Rendering fresh imagery…')
+        self._set_busy(True)
         lat, lon = self.latlon
         meters = int(self.meters)
-        img_w = QUALITY_PRESETS[self.quality_index][1]
+        img_w = int(max(256, round(self.imgv.width)))
 
         # 1) Show map quickly without address
         try:
             snap = get_snapshot(lat, lon, meters, self.current_map_type, img_w)
             quick_img = self._compose_image(snap, addr_text=None)
-            self._set_preview_image(quick_img)
+            self.imgv.image = quick_img
             self.save_btn.enabled = True
             self.share_btn.enabled = True
-            self.set_status('Snapshot ready. Looking up address details…')
         except Exception as e:
             self._set_busy(False)
             dialogs.alert('Render Failed', str(e), 'OK', hide_cancel_button=True)
@@ -909,25 +502,21 @@ class MapStudio(ui.View):
             addr = reverse_geocode_compact(lat, lon)
             if addr:
                 img = self._compose_image(snap, addr_text=addr)
-                ui.delay(lambda: self._set_preview_image(img), 0.0)
-                ui.delay(lambda: self.set_status('Address updated. Snapshot ready to export.'), 0.0)
-            else:
-                ui.delay(lambda: self.set_status('Snapshot ready. Address lookup unavailable.'), 0.0)
+                ui.delay(lambda: setattr(self.imgv, 'image', img), 0.0)
             ui.delay(lambda: self._set_busy(False), 0.0)
 
         threading.Thread(target=_addr_worker, daemon=True).start()
 
     def on_save(self, s):
-        if not self.preview.image:
+        if not self.imgv.image:
             dialogs.alert('Nothing to Save','Render a snapshot first.','OK',hide_cancel_button=True); return
-        path = self.last_tempfile or self._encode_temp(self.preview.image)
+        path = self.last_tempfile or self._encode_temp(self.imgv.image)
         if path:
             photos.create_image_asset(path)
             dialogs.alert('Saved','Image saved to Photos.','OK',hide_cancel_button=True)
 
     def on_share(self, s):
-        img = self.preview.image
-        path = self.last_tempfile or (self._encode_temp(img) if img else None)
+        path = self.last_tempfile or (self._encode_temp(self.imgv.image) if self.imgv.image else None)
         if path: console.quicklook(path)
         else: dialogs.alert('Nothing to Share','Render a snapshot first.','OK',hide_cancel_button=True)
 
