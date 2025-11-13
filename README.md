@@ -25,6 +25,9 @@ The app is tuned for **iPhone 14 Pro Max in portrait**, but the layout is simple
   - Full-height card layout with status messaging, live preview panel, and inline activity indicator.
   - Dedicated reset button to quickly return to pristine defaults.
   - Live status text keeps users informed about GPS, rendering, and geocoding progress.
+- **Mobile-ready live preview**
+  - Scrollable preview canvas with pinch-to-zoom, panning, and double-tap reset so you can inspect every pixel before exporting.
+  - Clear hint text reminds you to interact just like any native iOS photo viewer.
 - **Coverage control**
   - Adjustable square coverage from roughly **150 m up to 6 km**.
   - Coverage label shows both width and height using smart units (`123 m` or `1.2 km`).
@@ -58,6 +61,9 @@ The app is tuned for **iPhone 14 Pro Max in portrait**, but the layout is simple
     - map type
     - target image width
   - Rotation cache keyed by source image and rotation angle, so repeated rotations are cheap.
+- **High-fidelity rendering**
+  - Quality presets (Standard 1024 px, High 1536 px, Ultra 2048 px) keep exports razor sharp while balancing render time.
+  - Controls are wired directly to `location.render_map_snapshot` per the Pythonista 3 documentation, so you always capture at the maximum supported resolution.
 - **Asynchronous address fetch**
   - Snapshot renders immediately without blocking on geocoding.
   - Address lookup runs on a background thread; when it returns, the app recomposites with the address chip and updates the image on the UI thread.
