@@ -862,7 +862,8 @@ class MapStudio(ui.View):
         self.status_lbl.text = text
 
     def _set_preview_image(self, img):
-        self.preview.set_image(img)
+        square_img = _ensure_square_canvas(img) if img else None
+        self.preview.set_image(square_img)
         self.preview_hint.hidden = bool(img)
 
     def _update_quality_label(self):
