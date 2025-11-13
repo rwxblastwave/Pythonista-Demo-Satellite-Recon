@@ -14,6 +14,11 @@ RED              = (1, 0.2, 0.2, 1)
 CAPTION_OFFSET_Y = 26
 
 MAP_TYPES = ['standard', 'satellite', 'hybrid']
+QUALITY_PRESETS = [
+    ('Standard', 1024),
+    ('High', 1536),
+    ('Ultra', 2048),
+]
 
 SCREEN_W, SCREEN_H = 430, 932
 MIN_METERS, MAX_METERS = 150.0, 6000.0
@@ -365,6 +370,8 @@ class MapStudio(ui.View):
         self.latlon = None
         self.meters = DEFAULT_METERS
         self.rotation = 0.0
+        self.quality_index = 1  # default to High
+        self.last_render_image = None
         self.last_tempfile = None
         self.current_map_type = MAP_TYPES[1]
         self._build()
@@ -380,6 +387,12 @@ class MapStudio(ui.View):
         self.type_seg = ui.SegmentedControl(segments=['Standard','Satellite','Hybrid'])
         self.type_seg.selected_index = 1
         self.type_seg.action = self.on_type
+
+        self.quality_lbl = ui.Label(text='', alignment=0, number_of_lines=1)
+        self.quality_lbl.font = ('<System>',13); self.quality_lbl.text_color = '#555'
+        self.quality_seg = ui.SegmentedControl(segments=[q[0] for q in QUALITY_PRESETS])
+        self.quality_seg.selected_index = self.quality_index
+        self.quality_seg.action = self.on_quality
 
         self.m_slider = ui.Slider(action=self.on_cov)
         self.m_slider.value = meters_to_cov_slider(self.meters)
@@ -406,18 +419,27 @@ class MapStudio(ui.View):
         self.share_btn.border_width = 1; self.share_btn.border_color = '#34c759'
         self.share_btn.tint_color = '#34c759'
 
+        self.preview_hint = ui.Label(text='Pinch, pan, and double-tap the preview to inspect every pixel.', alignment=1)
+        self.preview_hint.font = ('<System>',12)
+        self.preview_hint.text_color = '#888'
+
         self.imgv = ui.ImageView(content_mode=ui.CONTENT_SCALE_ASPECT_FIT)
         self.imgv.bg_color = (0.97,0.97,0.97)
 
-        for v in (self.loc_btn,self.coord_lbl,self.type_seg,self.m_slider,self.m_label,
-                  self.rot_slider,self.rot_label,self.render_btn,self.save_btn,self.share_btn,self.imgv):
+        for v in (self.loc_btn,self.coord_lbl,self.type_seg,self.quality_lbl,self.quality_seg,
+                  self.m_slider,self.m_label,self.rot_slider,self.rot_label,self.render_btn,
+                  self.save_btn,self.share_btn,self.preview_hint,self.imgv):
             self.add_subview(v); v.flex = 'W'
+
+        self._update_quality_label()
 
     def _layout(self):
         pad = 16; y = 24
         self.loc_btn.frame = (pad,y,self.width-2*pad,36); y+=40
         self.coord_lbl.frame = (pad,y,self.width-2*pad,38); y+=44
         self.type_seg.frame = (pad,y,self.width-2*pad,32); y+=40
+        self.quality_lbl.frame = (pad,y,self.width-2*pad,20); y+=24
+        self.quality_seg.frame = (pad,y,self.width-2*pad,32); y+=40
         self.m_slider.frame = (pad,y,self.width-2*pad,24); y+=28
         self.m_label.frame = (pad,y,self.width-2*pad,20); y+=28
         self.rot_slider.frame = (pad,y,self.width-2*pad,24); y+=28
@@ -425,6 +447,7 @@ class MapStudio(ui.View):
         self.render_btn.frame = (pad,y,self.width-2*pad,40); y+=48
         self.save_btn.frame = (pad,y,(self.width-2*pad-8)//2,36)
         self.share_btn.frame = (self.save_btn.x+self.save_btn.width+8,y,self.save_btn.width,36); y+=44
+        self.preview_hint.frame = (pad,y,self.width-2*pad,18); y+=24
         size = self.width-2*pad
         self.imgv.frame = (pad,y,size,min(size,self.height-y-pad))
 
@@ -441,6 +464,14 @@ class MapStudio(ui.View):
 
     def on_type(self, s):
         self.current_map_type = MAP_TYPES[self.type_seg.selected_index]
+
+    def _update_quality_label(self):
+        name, px = QUALITY_PRESETS[self.quality_seg.selected_index]
+        self.quality_lbl.text = f'Render Quality: {name} ({px}px canvas)'
+
+    def on_quality(self, s):
+        self.quality_index = self.quality_seg.selected_index
+        self._update_quality_label()
 
     def on_cov(self, s):
         self.meters = cov_slider_to_meters(s.value)
@@ -465,7 +496,8 @@ class MapStudio(ui.View):
             return None
 
     def _set_busy(self, busy=True):
-        for v in (self.loc_btn, self.type_seg, self.m_slider, self.rot_slider, self.render_btn, self.save_btn, self.share_btn):
+        for v in (self.loc_btn, self.type_seg, self.quality_seg, self.m_slider, self.rot_slider,
+                  self.render_btn, self.save_btn, self.share_btn):
             v.enabled = not busy
         self.render_btn.title = 'Rendering...' if busy else 'Render Snapshot'
 
@@ -481,15 +513,18 @@ class MapStudio(ui.View):
             dialogs.alert('Location Needed','Tap “Use My Location” first.','OK',hide_cancel_button=True)
             return
         self._set_busy(True)
+        self.last_render_image = None
+        self.last_tempfile = None
         lat, lon = self.latlon
         meters = int(self.meters)
-        img_w = int(max(256, round(self.imgv.width)))
+        img_w = QUALITY_PRESETS[self.quality_index][1]
 
         # 1) Show map quickly without address
         try:
             snap = get_snapshot(lat, lon, meters, self.current_map_type, img_w)
             quick_img = self._compose_image(snap, addr_text=None)
             self.imgv.image = quick_img
+            self.last_render_image = quick_img
             self.save_btn.enabled = True
             self.share_btn.enabled = True
         except Exception as e:
@@ -502,21 +537,26 @@ class MapStudio(ui.View):
             addr = reverse_geocode_compact(lat, lon)
             if addr:
                 img = self._compose_image(snap, addr_text=addr)
-                ui.delay(lambda: setattr(self.imgv, 'image', img), 0.0)
+                def _apply():
+                    self.imgv.image = img
+                    self.last_render_image = img
+                ui.delay(_apply, 0.0)
             ui.delay(lambda: self._set_busy(False), 0.0)
 
         threading.Thread(target=_addr_worker, daemon=True).start()
 
     def on_save(self, s):
-        if not self.imgv.image:
+        target_img = self.last_render_image or self.imgv.image
+        if not target_img:
             dialogs.alert('Nothing to Save','Render a snapshot first.','OK',hide_cancel_button=True); return
-        path = self.last_tempfile or self._encode_temp(self.imgv.image)
+        path = self.last_tempfile or self._encode_temp(target_img)
         if path:
             photos.create_image_asset(path)
             dialogs.alert('Saved','Image saved to Photos.','OK',hide_cancel_button=True)
 
     def on_share(self, s):
-        path = self.last_tempfile or (self._encode_temp(self.imgv.image) if self.imgv.image else None)
+        target_img = self.last_render_image or self.imgv.image
+        path = self.last_tempfile or (self._encode_temp(target_img) if target_img else None)
         if path: console.quicklook(path)
         else: dialogs.alert('Nothing to Share','Render a snapshot first.','OK',hide_cancel_button=True)
 
