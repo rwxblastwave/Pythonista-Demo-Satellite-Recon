@@ -494,7 +494,8 @@ class ZoomPreview(ui.View):
                 self._scroll.zoom_scale = 1.0
             return
 
-        max_scale = max(2.0, min(6.0, 1.0 / self._fit_scale if self._fit_scale > 0 else 4.0))
+        native_scale = 1.0 / self._fit_scale if self._fit_scale > 0 else 4.0
+        max_scale = max(4.0, min(12.0, native_scale))
         self._scroll.minimum_zoom_scale = 1.0
         self._scroll.maximum_zoom_scale = max_scale
         if adjust_zoom:
@@ -724,13 +725,20 @@ class MapStudio(ui.View):
 
         self.preview_card.frame = (pad, y, width, 10)
         inner_p = 16
-        self.preview_title.frame = (inner_p, inner_p, width - 2*inner_p, 22)
-        img_size = width - 2*inner_p
+        inner_width = width - 2*inner_p
+        self.preview_title.frame = (inner_p, inner_p, inner_width, 22)
         img_y = inner_p + 30
-        max_img_height = max(220, min(img_size, self.height - (self.preview_card.y + 160)))
-        img_size = min(img_size, max_img_height)
-        self.preview.frame = (inner_p, img_y, img_size, img_size)
-        self.preview_hint.frame = (self.preview.x, self.preview.y + self.preview.height/2 - 10, self.preview.width, 20)
+        preferred_size = inner_width
+        min_preview = 300
+        if preferred_size < min_preview:
+            preferred_size = min_preview
+        self.preview.frame = (inner_p, img_y, preferred_size, preferred_size)
+        self.preview_hint.frame = (
+            self.preview.x,
+            self.preview.y + self.preview.height / 2 - 10,
+            self.preview.width,
+            20,
+        )
         self.preview_card.height = self.preview.y + self.preview.height + inner_p
         y = self.preview_card.y + self.preview_card.height + 12
 
