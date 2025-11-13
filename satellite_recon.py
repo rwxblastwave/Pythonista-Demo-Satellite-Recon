@@ -124,23 +124,37 @@ def _measure(text, font):
     return w, h
 
 # ---------- Imaging ----------
+def _ensure_square_canvas(img):
+    """Return a square version of img by letterboxing the longest edge."""
+    w, h = img.size
+    if w == h:
+        return img
+    side = int(max(w, h))
+    dx = (side - w) / 2.0
+    dy = (side - h) / 2.0
+    with ui.ImageContext(side, side) as ctx:
+        img.draw(dx, dy, w, h)
+        return ctx.get_image()
+
+
 def rotate_image_fill_square(img, degrees):
     """Rotate around center on a square canvas; skip or reuse when possible."""
     global _last_rot_src, _last_rot_deg, _last_rot_img
+    square = _ensure_square_canvas(img)
     if abs(degrees) < 0.01:
-        return img
-    if _last_rot_src is img and _last_rot_deg == degrees and _last_rot_img is not None:
+        return square
+    if (_last_rot_src is square and _last_rot_deg == degrees and
+            _last_rot_img is not None):
         return _last_rot_img
-    w, h = img.size
-    side = int(min(w, h))
+    side, _ = square.size
     theta = math.radians(degrees)
     scale = abs(math.cos(theta)) + abs(math.sin(theta))
     with ui.ImageContext(side, side) as ctx:
         ui.concat_ctm(ui.Transform.translation(side/2.0, side/2.0))
         ui.concat_ctm(ui.Transform.rotation(theta))
-        img.draw(-side*scale/2.0, -side*scale/2.0, side*scale, side*scale)
+        square.draw(-side*scale/2.0, -side*scale/2.0, side*scale, side*scale)
         out = ctx.get_image()
-    _last_rot_src, _last_rot_deg, _last_rot_img = img, degrees, out
+    _last_rot_src, _last_rot_deg, _last_rot_img = square, degrees, out
     return out
 
 # ---------- Caption ----------
