@@ -414,10 +414,11 @@ class ZoomPreview(ui.View):
         self._scroll.minimum_zoom_scale = 1.0
         self._scroll.zoom_scale = 1.0
         self._scroll.bounces = True
+        self._scroll.delegate = self
         self.add_subview(self._scroll)
 
         self._image_view = ui.ImageView(frame=self._scroll.bounds)
-        self._image_view.flex = 'WH'
+        self._image_view.flex = ''
         self._image_view.content_mode = ui.CONTENT_SCALE_ASPECT_FIT
         self._image_view.touch_enabled = False
         self._scroll.add_subview(self._image_view)
@@ -428,12 +429,18 @@ class ZoomPreview(ui.View):
 
     def layout(self):
         self._scroll.frame = (0, 0, self.width, self.height)
-        self._image_view.frame = (0, 0, self._scroll.width, self._scroll.height)
+        self._update_image_frame()
         self._update_content_size()
 
+    def _update_image_frame(self):
+        if self._image_size[0] and self._image_size[1]:
+            self._image_view.frame = (0, 0, self._image_size[0], self._image_size[1])
+        else:
+            self._image_view.frame = (0, 0, self._scroll.width, self._scroll.height)
+
     def _update_content_size(self):
-        w = max(self.width, self._image_size[0])
-        h = max(self.height, self._image_size[1])
+        w = max(self._scroll.width, self._image_view.width)
+        h = max(self._scroll.height, self._image_view.height)
         self._scroll.content_size = (w, h)
 
     def reset_zoom(self):
@@ -447,8 +454,16 @@ class ZoomPreview(ui.View):
             self._scroll.maximum_zoom_scale = max(2.0, min(6.0, img.size[0] / max(1.0, self.width)))
         else:
             self._image_size = (0, 0)
+        self._update_image_frame()
         self._update_content_size()
         self.reset_zoom()
+
+    # --- ScrollView delegate hooks ---
+    def view_for_zooming_in_scrollview(self, scrollview):
+        return self._image_view
+
+    def scrollview_did_zoom(self, scrollview):
+        self._update_content_size()
 
 # ---------- App ----------
 class MapStudio(ui.View):
