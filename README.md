@@ -21,6 +21,10 @@ The app is tuned for **iPhone 14 Pro Max in portrait**, but the layout is simple
 
 - **Map modes**
   - Standard, Satellite, and Hybrid map types via a segmented control.
+- **Refined interface**
+  - Full-height card layout with status messaging, live preview panel, and inline activity indicator.
+  - Dedicated reset button to quickly return to pristine defaults.
+  - Live status text keeps users informed about GPS, rendering, and geocoding progress.
 - **Coverage control**
   - Adjustable square coverage from roughly **150 m up to 6 km**.
   - Coverage label shows both width and height using smart units (`123 m` or `1.2 km`).
